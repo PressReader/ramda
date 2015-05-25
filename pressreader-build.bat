@@ -1,0 +1,1 @@
+node scripts/build -- src/pipe.js src/equals.js > dist/ramda.pressreader.js
