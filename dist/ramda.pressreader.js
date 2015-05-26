@@ -111,8 +111,16 @@
         };
     };
 
+    var _gt = function _gt(a, b) {
+        return a > b;
+    };
+
     var _has = function _has(prop, obj) {
         return Object.prototype.hasOwnProperty.call(obj, prop);
+    };
+
+    var _identity = function _identity(x) {
+        return x;
     };
 
     /**
@@ -129,6 +137,18 @@
      */
     var _isArray = Array.isArray || function _isArray(val) {
         return val != null && val.length >= 0 && Object.prototype.toString.call(val) === '[object Array]';
+    };
+
+    var _isTransformer = function _isTransformer(obj) {
+        return typeof obj['@@transducer/step'] === 'function';
+    };
+
+    var _map = function _map(fn, list) {
+        var idx = -1, len = list.length, result = [];
+        while (++idx < len) {
+            result[idx] = fn(list[idx]);
+        }
+        return result;
     };
 
     /**
@@ -164,6 +184,30 @@
             return list;
         }
     };
+
+    var _xfBase = {
+        init: function () {
+            return this.xf['@@transducer/init']();
+        },
+        result: function (result) {
+            return this.xf['@@transducer/result'](result);
+        }
+    };
+
+    var _xmap = function () {
+        function XMap(f, xf) {
+            this.xf = xf;
+            this.f = f;
+        }
+        XMap.prototype['@@transducer/init'] = _xfBase.init;
+        XMap.prototype['@@transducer/result'] = _xfBase.result;
+        XMap.prototype['@@transducer/step'] = function (result, input) {
+            return this.xf['@@transducer/step'](result, this.f(input));
+        };
+        return _curry2(function _xmap(f, xf) {
+            return new XMap(f, xf);
+        });
+    }();
 
     /**
      * Wraps a function of any arity (including nullary) in a function that accepts exactly `n`
@@ -253,6 +297,81 @@
     });
 
     /**
+     * Returns a curried equivalent of the provided function, with the
+     * specified arity. The curried function has two unusual capabilities.
+     * First, its arguments needn't be provided one at a time. If `g` is
+     * `R.curryN(3, f)`, the following are equivalent:
+     *
+     *   - `g(1)(2)(3)`
+     *   - `g(1)(2, 3)`
+     *   - `g(1, 2)(3)`
+     *   - `g(1, 2, 3)`
+     *
+     * Secondly, the special placeholder value `R.__` may be used to specify
+     * "gaps", allowing partial application of any combination of arguments,
+     * regardless of their positions. If `g` is as above and `_` is `R.__`,
+     * the following are equivalent:
+     *
+     *   - `g(1, 2, 3)`
+     *   - `g(_, 2, 3)(1)`
+     *   - `g(_, _, 3)(1)(2)`
+     *   - `g(_, _, 3)(1, 2)`
+     *   - `g(_, 2)(1)(3)`
+     *   - `g(_, 2)(1, 3)`
+     *   - `g(_, 2)(_, 3)(1)`
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @sig Number -> (* -> a) -> (* -> a)
+     * @param {Number} length The arity for the returned function.
+     * @param {Function} fn The function to curry.
+     * @return {Function} A new, curried function.
+     * @see R.curry
+     * @example
+     *
+     *      var addFourNumbers = function() {
+     *        return R.sum([].slice.call(arguments, 0, 4));
+     *      };
+     *
+     *      var curriedAddFourNumbers = R.curryN(4, addFourNumbers);
+     *      var f = curriedAddFourNumbers(1, 2);
+     *      var g = f(3);
+     *      g(4); //=> 10
+     */
+    var curryN = _curry2(function curryN(length, fn) {
+        return arity(length, function () {
+            var n = arguments.length;
+            var shortfall = length - n;
+            var idx = n;
+            while (--idx >= 0) {
+                if (arguments[idx] === __) {
+                    shortfall += 1;
+                }
+            }
+            if (shortfall <= 0) {
+                return fn.apply(this, arguments);
+            } else {
+                var initialArgs = _slice(arguments);
+                return curryN(shortfall, function () {
+                    var currentArgs = _slice(arguments);
+                    var combinedArgs = [];
+                    var idx = -1;
+                    var currentArgsIdx = 0;
+                    while (++idx < n) {
+                        var val = initialArgs[idx];
+                        combinedArgs[idx] = val === __ ? currentArgs[currentArgsIdx++] : val;
+                    }
+                    while (currentArgsIdx < currentArgs.length) {
+                        combinedArgs[idx++] = currentArgs[currentArgsIdx++];
+                    }
+                    return fn.apply(this, combinedArgs);
+                });
+            }
+        });
+    });
+
+    /**
      * Returns true if its arguments are identical, false otherwise. Values are
      * identical if they reference the same memory. `NaN` is identical to `NaN`;
      * `0` and `-0` are not identical.
@@ -289,6 +408,25 @@
             return a !== a && b !== b;
         }
     });
+
+    /**
+     * A function that does nothing but return the parameter supplied to it. Good as a default
+     * or placeholder function.
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @sig a -> a
+     * @param {*} x The value to return.
+     * @return {*} The input value, `x`.
+     * @example
+     *
+     *      R.identity(1); //=> 1
+     *
+     *      var obj = {};
+     *      R.identity(obj) === obj; //=> true
+     */
+    var identity = _curry1(_identity);
 
     /**
      * Returns a list containing the names of all the enumerable own
@@ -355,6 +493,25 @@
     }();
 
     /**
+     * Returns a function that when supplied an object returns the indicated property of that object, if it exists.
+     *
+     * @func
+     * @memberOf R
+     * @category Object
+     * @sig s -> {s: a} -> a
+     * @param {String} p The property name
+     * @param {Object} obj The object to query
+     * @return {*} The value at `obj.p`.
+     * @example
+     *
+     *      R.prop('x', {x: 100}); //=> 100
+     *      R.prop('x', {}); //=> undefined
+     */
+    var prop = _curry2(function prop(p, obj) {
+        return obj[p];
+    });
+
+    /**
      * Returns a new list with the same elements as the original list, just
      * in the reverse order.
      *
@@ -413,6 +570,65 @@
                 fn = composeFunction(arguments[idx], fn);
             }
             return arity(length, fn);
+        };
+    };
+
+    /**
+     * Create a function which takes a list
+     * and determines the winning value by a comparator. Used internally
+     * by `R.max` and `R.min`
+     *
+     * @private
+     * @param {Function} compatator a function to compare two items
+     * @param {*} intialVal, default value if nothing else wins
+     * @category Math
+     * @return {Function}
+     */
+    var _createMaxMin = function _createMaxMin(comparator, initialVal) {
+        return _curry1(function (list) {
+            var idx = -1, winner = initialVal, computed;
+            while (++idx < list.length) {
+                computed = +list[idx];
+                if (comparator(computed, winner)) {
+                    winner = computed;
+                }
+            }
+            return winner;
+        });
+    };
+
+    /**
+     * Returns a function that dispatches with different strategies based on the
+     * object in list position (last argument). If it is an array, executes [fn].
+     * Otherwise, if it has a  function with [methodname], it will execute that
+     * function (functor case). Otherwise, if it is a transformer, uses transducer
+     * [xf] to return a new transformer (transducer case). Otherwise, it will
+     * default to executing [fn].
+     *
+     * @private
+     * @param {String} methodname property to check for a custom implementation
+     * @param {Function} xf transducer to initialize if object is transformer
+     * @param {Function} fn default ramda implementation
+     * @return {Function} A function that dispatches on object in list position
+     */
+    var _dispatchable = function _dispatchable(methodname, xf, fn) {
+        return function () {
+            var length = arguments.length;
+            if (length === 0) {
+                return fn();
+            }
+            var obj = arguments[length - 1];
+            if (!_isArray(obj)) {
+                var args = _slice(arguments, 0, length - 1);
+                if (typeof obj[methodname] === 'function') {
+                    return obj[methodname].apply(obj, args);
+                }
+                if (_isTransformer(obj)) {
+                    var transducer = xf.apply(null, args);
+                    return transducer(obj);
+                }
+            }
+            return fn.apply(this, arguments);
         };
     };
 
@@ -516,6 +732,52 @@
     var compose = _createComposer(_compose);
 
     /**
+     * Returns a curried equivalent of the provided function. The curried
+     * function has two unusual capabilities. First, its arguments needn't
+     * be provided one at a time. If `f` is a ternary function and `g` is
+     * `R.curry(f)`, the following are equivalent:
+     *
+     *   - `g(1)(2)(3)`
+     *   - `g(1)(2, 3)`
+     *   - `g(1, 2)(3)`
+     *   - `g(1, 2, 3)`
+     *
+     * Secondly, the special placeholder value `R.__` may be used to specify
+     * "gaps", allowing partial application of any combination of arguments,
+     * regardless of their positions. If `g` is as above and `_` is `R.__`,
+     * the following are equivalent:
+     *
+     *   - `g(1, 2, 3)`
+     *   - `g(_, 2, 3)(1)`
+     *   - `g(_, _, 3)(1)(2)`
+     *   - `g(_, _, 3)(1, 2)`
+     *   - `g(_, 2)(1)(3)`
+     *   - `g(_, 2)(1, 3)`
+     *   - `g(_, 2)(_, 3)(1)`
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @sig (* -> a) -> (* -> a)
+     * @param {Function} fn The function to curry.
+     * @return {Function} A new, curried function.
+     * @see R.curryN
+     * @example
+     *
+     *      var addFourNumbers = function(a, b, c, d) {
+     *        return a + b + c + d;
+     *      };
+     *
+     *      var curriedAddFourNumbers = R.curry(addFourNumbers);
+     *      var f = curriedAddFourNumbers(1, 2);
+     *      var g = f(3);
+     *      g(4); //=> 10
+     */
+    var curry = _curry1(function curry(fn) {
+        return curryN(fn.length, fn);
+    });
+
+    /**
      * Returns `true` if its arguments are equivalent, `false` otherwise.
      * Dispatches to an `equals` method if present. Handles cyclical data
      * structures.
@@ -540,6 +802,79 @@
     var equals = _curry2(function equals(a, b) {
         return _hasMethod('equals', a) ? a.equals(b) : _hasMethod('equals', b) ? b.equals(a) : _equals(a, b, [], []);
     });
+
+    /**
+     * Returns a new function much like the supplied one, except that the first two arguments'
+     * order is reversed.
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @sig (a -> b -> c -> ... -> z) -> (b -> a -> c -> ... -> z)
+     * @param {Function} fn The function to invoke with its first two parameters reversed.
+     * @return {*} The result of invoking `fn` with its first two parameters' order reversed.
+     * @example
+     *
+     *      var mergeThree = function(a, b, c) {
+     *        return ([]).concat(a, b, c);
+     *      };
+     *
+     *      mergeThree(1, 2, 3); //=> [1, 2, 3]
+     *
+     *      R.flip(mergeThree)(1, 2, 3); //=> [2, 1, 3]
+     */
+    var flip = _curry1(function flip(fn) {
+        return curry(function (a, b) {
+            var args = _slice(arguments);
+            args[0] = b;
+            args[1] = a;
+            return fn.apply(this, args);
+        });
+    });
+
+    /**
+     * Returns a new list, constructed by applying the supplied function to every element of the
+     * supplied list.
+     *
+     * Note: `R.map` does not skip deleted or unassigned indices (sparse arrays), unlike the
+     * native `Array.prototype.map` method. For more details on this behavior, see:
+     * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map#Description
+     *
+     * Acts as a transducer if a transformer is given in list position.
+     * @see R.transduce
+     *
+     * @func
+     * @memberOf R
+     * @category List
+     * @sig (a -> b) -> [a] -> [b]
+     * @param {Function} fn The function to be called on every element of the input `list`.
+     * @param {Array} list The list to be iterated over.
+     * @return {Array} The new list.
+     * @example
+     *
+     *      var double = function(x) {
+     *        return x * 2;
+     *      };
+     *
+     *      R.map(double, [1, 2, 3]); //=> [2, 4, 6]
+     */
+    var map = _curry2(_dispatchable('map', _xmap, _map));
+
+    /**
+     * Determines the largest of a list of numbers (or elements that can be cast to numbers)
+     *
+     * @func
+     * @memberOf R
+     * @category Math
+     * @sig [Number] -> Number
+     * @see R.maxBy
+     * @param {Array} list A list of numbers
+     * @return {Number} The greatest number in the list.
+     * @example
+     *
+     *      R.max([7, 3, 9, 2, 4, 9, 3]); //=> 9
+     */
+    var max = _createMaxMin(_gt, -Infinity);
 
     /**
      * Creates a new function that runs each of the functions supplied as parameters in turn,
@@ -572,8 +907,69 @@
         return compose.apply(this, reverse(arguments));
     };
 
+    var _pluck = function _pluck(p, list) {
+        return map(prop(p), list);
+    };
+
+    /**
+     * Returns a new list by plucking the same named property off all objects in the list supplied.
+     *
+     * @func
+     * @memberOf R
+     * @category List
+     * @sig k -> [{k: v}] -> [v]
+     * @param {Number|String} key The key name to pluck off of each object.
+     * @param {Array} list The array to consider.
+     * @return {Array} The list of values for the given key.
+     * @example
+     *
+     *      R.pluck('a')([{a: 1}, {a: 2}]); //=> [1, 2]
+     *      R.pluck(0)([[1, 2], [3, 4]]);   //=> [1, 3]
+     */
+    var pluck = _curry2(_pluck);
+
+    /**
+     * Accepts at least three functions and returns a new function. When invoked, this new
+     * function will invoke the first function, `after`, passing as its arguments the
+     * results of invoking the subsequent functions with whatever arguments are passed to
+     * the new function.
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @sig (x1 -> x2 -> ... -> z) -> ((a -> b -> ... -> x1), (a -> b -> ... -> x2), ...) -> (a -> b -> ... -> z)
+     * @param {Function} after A function. `after` will be invoked with the return values of
+     *        `fn1` and `fn2` as its arguments.
+     * @param {...Function} functions A variable number of functions.
+     * @return {Function} A new function.
+     * @example
+     *
+     *      var add = function(a, b) { return a + b; };
+     *      var multiply = function(a, b) { return a * b; };
+     *      var subtract = function(a, b) { return a - b; };
+     *
+     *      //≅ multiply( add(1, 2), subtract(1, 2) );
+     *      R.converge(multiply, add, subtract)(1, 2); //=> -3
+     *
+     *      var add3 = function(a, b, c) { return a + b + c; };
+     *      R.converge(add3, multiply, add, subtract)(1, 2); //=> 4
+     */
+    var converge = curryN(3, function (after) {
+        var fns = _slice(arguments, 1);
+        return curryN(max(pluck('length', fns)), function () {
+            var args = arguments;
+            var context = this;
+            return after.apply(context, _map(function (fn) {
+                return fn.apply(context, args);
+            }, fns));
+        });
+    });
+
     var R = {
+        converge: converge,
         equals: equals,
+        flip: flip,
+        identity: identity,
         pipe: pipe
     };
 
