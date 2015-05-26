@@ -935,9 +935,49 @@
         return compose.apply(this, reverse(arguments));
     };
 
+    var _indexOf = function _indexOf(list, item, from) {
+        var idx = 0, len = list.length;
+        if (typeof from === 'number') {
+            idx = from < 0 ? Math.max(0, len + from) : from;
+        }
+        while (idx < len) {
+            if (equals(list[idx], item)) {
+                return idx;
+            }
+            ++idx;
+        }
+        return -1;
+    };
+
     var _pluck = function _pluck(p, list) {
         return map(prop(p), list);
     };
+
+    /**
+     * Returns a partial copy of an object containing only the keys specified.  If the key does not exist, the
+     * property is ignored.
+     *
+     * @func
+     * @memberOf R
+     * @category Object
+     * @sig [String] -> {String: *} -> {String: *}
+     * @param {Array} names an array of String property names to copy onto a new object
+     * @param {Object} obj The object to copy from
+     * @return {Object} A new object with only properties from `names` on it.
+     * @example
+     *
+     *      R.pick(['a', 'd'], {a: 1, b: 2, c: 3, d: 4}); //=> {a: 1, d: 4}
+     *      R.pick(['a', 'e', 'f'], {a: 1, b: 2, c: 3, d: 4}); //=> {a: 1}
+     */
+    var pick = _curry2(function pick(names, obj) {
+        var result = {};
+        for (var prop in obj) {
+            if (_indexOf(names, prop) >= 0) {
+                result[prop] = obj[prop];
+            }
+        }
+        return result;
+    });
 
     /**
      * Returns a new list by plucking the same named property off all objects in the list supplied.
@@ -999,6 +1039,7 @@
         flip: flip,
         identity: identity,
         map: map,
+        pick: pick,
         pipe: pipe,
         prop: prop,
         props: props
