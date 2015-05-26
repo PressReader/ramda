@@ -512,6 +512,34 @@
     });
 
     /**
+     * Acts as multiple `get`: array of keys in, array of values out. Preserves order.
+     *
+     * @func
+     * @memberOf R
+     * @category Object
+     * @sig [k] -> {k: v} -> [v]
+     * @param {Array} ps The property names to fetch
+     * @param {Object} obj The object to query
+     * @return {Array} The corresponding values or partially applied function.
+     * @example
+     *
+     *      R.props(['x', 'y'], {x: 1, y: 2}); //=> [1, 2]
+     *      R.props(['c', 'a', 'b'], {b: 2, a: 1}); //=> [undefined, 1, 2]
+     *
+     *      var fullName = R.compose(R.join(' '), R.props(['first', 'last']));
+     *      fullName({last: 'Bullet-Tooth', age: 33, first: 'Tony'}); //=> 'Tony Bullet-Tooth'
+     */
+    var props = _curry2(function props(ps, obj) {
+        var len = ps.length;
+        var out = [];
+        var idx = -1;
+        while (++idx < len) {
+            out[idx] = obj[ps[idx]];
+        }
+        return out;
+    });
+
+    /**
      * Returns a new list with the same elements as the original list, just
      * in the reverse order.
      *
@@ -970,7 +998,10 @@
         equals: equals,
         flip: flip,
         identity: identity,
-        pipe: pipe
+        map: map,
+        pipe: pipe,
+        prop: prop,
+        props: props
     };
 
   /* TEST_ENTRY_POINT */
