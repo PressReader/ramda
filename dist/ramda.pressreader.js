@@ -1218,6 +1218,7 @@
     });
 
     var R = {
+        compose: compose,
         converge: converge,
         equals: equals,
         filter: filter,
