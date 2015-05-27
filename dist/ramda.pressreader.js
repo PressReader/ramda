@@ -111,6 +111,81 @@
         };
     };
 
+    /**
+     * Optimized internal three-arity curry function.
+     *
+     * @private
+     * @category Function
+     * @param {Function} fn The function to curry.
+     * @return {Function} The curried function.
+     */
+    var _curry3 = function _curry3(fn) {
+        return function f3(a, b, c) {
+            var n = arguments.length;
+            if (n === 0) {
+                return f3;
+            } else if (n === 1 && a === __) {
+                return f3;
+            } else if (n === 1) {
+                return _curry2(function (b, c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 2 && a === __ && b === __) {
+                return f3;
+            } else if (n === 2 && a === __) {
+                return _curry2(function (a, c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 2 && b === __) {
+                return _curry2(function (b, c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 2) {
+                return _curry1(function (c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && a === __ && b === __ && c === __) {
+                return f3;
+            } else if (n === 3 && a === __ && b === __) {
+                return _curry2(function (a, b) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && a === __ && c === __) {
+                return _curry2(function (a, c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && b === __ && c === __) {
+                return _curry2(function (b, c) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && a === __) {
+                return _curry1(function (a) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && b === __) {
+                return _curry1(function (b) {
+                    return fn(a, b, c);
+                });
+            } else if (n === 3 && c === __) {
+                return _curry1(function (c) {
+                    return fn(a, b, c);
+                });
+            } else {
+                return fn(a, b, c);
+            }
+        };
+    };
+
+    var _filter = function _filter(fn, list) {
+        var idx = -1, len = list.length, result = [];
+        while (++idx < len) {
+            if (fn(list[idx])) {
+                result[result.length] = list[idx];
+            }
+        }
+        return result;
+    };
+
     var _gt = function _gt(a, b) {
         return a > b;
     };
@@ -193,6 +268,21 @@
             return this.xf['@@transducer/result'](result);
         }
     };
+
+    var _xfilter = function () {
+        function XFilter(f, xf) {
+            this.xf = xf;
+            this.f = f;
+        }
+        XFilter.prototype['@@transducer/init'] = _xfBase.init;
+        XFilter.prototype['@@transducer/result'] = _xfBase.result;
+        XFilter.prototype['@@transducer/step'] = function (result, input) {
+            return this.f(input) ? this.xf['@@transducer/step'](result, input) : result;
+        };
+        return _curry2(function _xfilter(f, xf) {
+            return new XFilter(f, xf);
+        });
+    }();
 
     var _xmap = function () {
         function XMap(f, xf) {
@@ -429,6 +519,26 @@
     var identity = _curry1(_identity);
 
     /**
+     * Checks if the input value is `null` or `undefined`.
+     *
+     * @func
+     * @memberOf R
+     * @category Type
+     * @sig * -> Boolean
+     * @param {*} x The value to test.
+     * @return {Boolean} `true` if `x` is `undefined` or `null`, otherwise `false`.
+     * @example
+     *
+     *      R.isNil(null); //=> true
+     *      R.isNil(undefined); //=> true
+     *      R.isNil(0); //=> false
+     *      R.isNil([]); //=> false
+     */
+    var isNil = _curry1(function isNil(x) {
+        return x == null;
+    });
+
+    /**
      * Returns a list containing the names of all the enumerable own
      * properties of the supplied object.
      * Note that the order of the output array is not guaranteed to be
@@ -491,6 +601,28 @@
             return ks;
         });
     }();
+
+    /**
+     * A function that returns the `!` of its argument. It will return `true` when
+     * passed false-y value, and `false` when passed a truth-y one.
+     *
+     * @func
+     * @memberOf R
+     * @category Logic
+     * @sig * -> Boolean
+     * @param {*} a any value
+     * @return {Boolean} the logical inverse of passed argument.
+     * @see complement
+     * @example
+     *
+     *      R.not(true); //=> false
+     *      R.not(false); //=> true
+     *      R.not(0); => true
+     *      R.not(1); => false
+     */
+    var not = _curry1(function not(a) {
+        return !a;
+    });
 
     /**
      * Returns a function that when supplied an object returns the indicated property of that object, if it exists.
@@ -832,6 +964,33 @@
     });
 
     /**
+     * Returns a new list containing only those items that match a given predicate function.
+     * The predicate function is passed one argument: *(value)*.
+     *
+     * Note that `R.filter` does not skip deleted or unassigned indices, unlike the native
+     * `Array.prototype.filter` method. For more details on this behavior, see:
+     * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/filter#Description
+     *
+     * Acts as a transducer if a transformer is given in list position.
+     * @see R.transduce
+     *
+     * @func
+     * @memberOf R
+     * @category List
+     * @sig (a -> Boolean) -> [a] -> [a]
+     * @param {Function} fn The function called per iteration.
+     * @param {Array} list The collection to iterate over.
+     * @return {Array} The new filtered array.
+     * @example
+     *
+     *      var isEven = function(n) {
+     *        return n % 2 === 0;
+     *      };
+     *      R.filter(isEven, [1, 2, 3, 4]); //=> [2, 4]
+     */
+    var filter = _curry2(_dispatchable('filter', _xfilter, _filter));
+
+    /**
      * Returns a new function much like the supplied one, except that the first two arguments'
      * order is reversed.
      *
@@ -935,6 +1094,31 @@
         return compose.apply(this, reverse(arguments));
     };
 
+    /**
+     * Determines whether the given property of an object has a specific value,
+     * in `R.equals` terms. Most likely used to filter a list.
+     *
+     * @func
+     * @memberOf R
+     * @category Relation
+     * @sig k -> v -> {k: v} -> Boolean
+     * @param {Number|String} name The property name (or index) to use.
+     * @param {*} val The value to compare the property with.
+     * @return {Boolean} `true` if the properties are equal, `false` otherwise.
+     * @example
+     *
+     *      var abby = {name: 'Abby', age: 7, hair: 'blond'};
+     *      var fred = {name: 'Fred', age: 12, hair: 'brown'};
+     *      var rusty = {name: 'Rusty', age: 10, hair: 'brown'};
+     *      var alois = {name: 'Alois', age: 15, disposition: 'surly'};
+     *      var kids = [abby, fred, rusty, alois];
+     *      var hasBrownHair = R.propEq('hair', 'brown');
+     *      R.filter(hasBrownHair, kids); //=> [fred, rusty]
+     */
+    var propEq = _curry3(function propEq(name, val, obj) {
+        return equals(obj[name], val);
+    });
+
     var _indexOf = function _indexOf(list, item, from) {
         var idx = 0, len = list.length;
         if (typeof from === 'number') {
@@ -1036,12 +1220,16 @@
     var R = {
         converge: converge,
         equals: equals,
+        filter: filter,
         flip: flip,
         identity: identity,
+        isNil: isNil,
         map: map,
+        not: not,
         pick: pick,
         pipe: pipe,
         prop: prop,
+        propEq: propEq,
         props: props
     };
 
