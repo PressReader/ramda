@@ -299,6 +299,24 @@
         });
     }();
 
+    var _xwrap = function () {
+        function XWrap(fn) {
+            this.f = fn;
+        }
+        XWrap.prototype['@@transducer/init'] = function () {
+            throw new Error('init not implemented on XWrap');
+        };
+        XWrap.prototype['@@transducer/result'] = function (acc) {
+            return acc;
+        };
+        XWrap.prototype['@@transducer/step'] = function (acc, x) {
+            return this.f(acc, x);
+        };
+        return function _xwrap(fn) {
+            return new XWrap(fn);
+        };
+    }();
+
     /**
      * Wraps a function of any arity (including nullary) in a function that accepts exactly `n`
      * parameters. Unlike `nAry`, which passes only `n` arguments to the wrapped function,
@@ -384,6 +402,27 @@
         default:
             throw new Error('First argument to arity must be a non-negative integer no greater than ten');
         }
+    });
+
+    /**
+     * Creates a function that is bound to a context.
+     * Note: `R.bind` does not provide the additional argument-binding capabilities of
+     * [Function.prototype.bind](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/bind).
+     *
+     * @func
+     * @memberOf R
+     * @category Function
+     * @category Object
+     * @see R.partial
+     * @sig (* -> *) -> {*} -> (* -> *)
+     * @param {Function} fn The function to bind to context
+     * @param {Object} thisObj The context to bind `fn` to
+     * @return {Function} A function that will execute in the context of `thisObj`.
+     */
+    var bind = _curry2(function bind(fn, thisObj) {
+        return arity(fn.length, function () {
+            return fn.apply(thisObj, arguments);
+        });
     });
 
     /**
@@ -517,6 +556,49 @@
      *      R.identity(obj) === obj; //=> true
      */
     var identity = _curry1(_identity);
+
+    /**
+     * Tests whether or not an object is similar to an array.
+     *
+     * @func
+     * @memberOf R
+     * @category Type
+     * @category List
+     * @sig * -> Boolean
+     * @param {*} x The object to test.
+     * @return {Boolean} `true` if `x` has a numeric length property and extreme indices defined; `false` otherwise.
+     * @example
+     *
+     *      R.isArrayLike([]); //=> true
+     *      R.isArrayLike(true); //=> false
+     *      R.isArrayLike({}); //=> false
+     *      R.isArrayLike({length: 10}); //=> false
+     *      R.isArrayLike({0: 'zero', 9: 'nine', length: 10}); //=> true
+     */
+    var isArrayLike = _curry1(function isArrayLike(x) {
+        if (_isArray(x)) {
+            return true;
+        }
+        if (!x) {
+            return false;
+        }
+        if (typeof x !== 'object') {
+            return false;
+        }
+        if (x instanceof String) {
+            return false;
+        }
+        if (x.nodeType === 1) {
+            return !!x.length;
+        }
+        if (x.length === 0) {
+            return true;
+        }
+        if (x.length > 0) {
+            return x.hasOwnProperty(0) && x.hasOwnProperty(x.length - 1);
+        }
+        return false;
+    });
 
     /**
      * Checks if the input value is `null` or `undefined`.
@@ -862,6 +944,79 @@
     };
 
     /**
+     * `_makeFlat` is a helper function that returns a one-level or fully recursive function
+     * based on the flag passed in.
+     *
+     * @private
+     */
+    var _makeFlat = function _makeFlat(recursive) {
+        return function flatt(list) {
+            var value, result = [], idx = -1, j, ilen = list.length, jlen;
+            while (++idx < ilen) {
+                if (isArrayLike(list[idx])) {
+                    value = recursive ? flatt(list[idx]) : list[idx];
+                    j = -1;
+                    jlen = value.length;
+                    while (++j < jlen) {
+                        result[result.length] = value[j];
+                    }
+                } else {
+                    result[result.length] = list[idx];
+                }
+            }
+            return result;
+        };
+    };
+
+    var _reduce = function () {
+        function _arrayReduce(xf, acc, list) {
+            var idx = -1, len = list.length;
+            while (++idx < len) {
+                acc = xf['@@transducer/step'](acc, list[idx]);
+                if (acc && acc['@@transducer/reduced']) {
+                    acc = acc['@@transducer/value'];
+                    break;
+                }
+            }
+            return xf['@@transducer/result'](acc);
+        }
+        function _iterableReduce(xf, acc, iter) {
+            var step = iter.next();
+            while (!step.done) {
+                acc = xf['@@transducer/step'](acc, step.value);
+                if (acc && acc['@@transducer/reduced']) {
+                    acc = acc['@@transducer/value'];
+                    break;
+                }
+                step = iter.next();
+            }
+            return xf['@@transducer/result'](acc);
+        }
+        function _methodReduce(xf, acc, obj) {
+            return xf['@@transducer/result'](obj.reduce(bind(xf['@@transducer/step'], xf), acc));
+        }
+        var symIterator = typeof Symbol !== 'undefined' ? Symbol.iterator : '@@iterator';
+        return function _reduce(fn, acc, list) {
+            if (typeof fn === 'function') {
+                fn = _xwrap(fn);
+            }
+            if (isArrayLike(list)) {
+                return _arrayReduce(fn, acc, list);
+            }
+            if (typeof list.reduce === 'function') {
+                return _methodReduce(fn, acc, list);
+            }
+            if (list[symIterator] != null) {
+                return _iterableReduce(fn, acc, list[symIterator]());
+            }
+            if (typeof list.next === 'function') {
+                return _iterableReduce(fn, acc, list);
+            }
+            throw new TypeError('reduce: list must be array or iterable');
+        };
+    }();
+
+    /**
      * Creates a new function that runs each of the functions supplied as parameters in turn,
      * passing the return value of each function invocation to the next function invocation,
      * beginning with whatever arguments were passed to the initial invocation.
@@ -989,6 +1144,23 @@
      *      R.filter(isEven, [1, 2, 3, 4]); //=> [2, 4]
      */
     var filter = _curry2(_dispatchable('filter', _xfilter, _filter));
+
+    /**
+     * Returns a new list by pulling every item out of it (and all its sub-arrays) and putting
+     * them in a new array, depth-first.
+     *
+     * @func
+     * @memberOf R
+     * @category List
+     * @sig [a] -> [b]
+     * @param {Array} list The array to consider.
+     * @return {Array} The flattened list.
+     * @example
+     *
+     *      R.flatten([1, 2, [3, 4], 5, [6, [7, 8, [9, [10, 11], 12]]]]);
+     *      //=> [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+     */
+    var flatten = _curry1(_makeFlat(true));
 
     /**
      * Returns a new function much like the supplied one, except that the first two arguments'
@@ -1119,6 +1291,37 @@
         return equals(obj[name], val);
     });
 
+    /**
+     * Returns a single item by iterating through the list, successively calling the iterator
+     * function and passing it an accumulator value and the current value from the array, and
+     * then passing the result to the next call.
+     *
+     * The iterator function receives two values: *(acc, value)*
+     *
+     * Note: `R.reduce` does not skip deleted or unassigned indices (sparse arrays), unlike
+     * the native `Array.prototype.reduce` method. For more details on this behavior, see:
+     * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reduce#Description
+     *
+     * @func
+     * @memberOf R
+     * @category List
+     * @sig (a,b -> a) -> a -> [b] -> a
+     * @param {Function} fn The iterator function. Receives two values, the accumulator and the
+     *        current element from the array.
+     * @param {*} acc The accumulator value.
+     * @param {Array} list The list to iterate over.
+     * @return {*} The final, accumulated value.
+     * @example
+     *
+     *      var numbers = [1, 2, 3];
+     *      var add = function(a, b) {
+     *        return a + b;
+     *      };
+     *
+     *      R.reduce(add, 10, numbers); //=> 16
+     */
+    var reduce = _curry3(_reduce);
+
     var _indexOf = function _indexOf(list, item, from) {
         var idx = 0, len = list.length;
         if (typeof from === 'number') {
@@ -1222,6 +1425,7 @@
         converge: converge,
         equals: equals,
         filter: filter,
+        flatten: flatten,
         flip: flip,
         identity: identity,
         isNil: isNil,
@@ -1231,7 +1435,8 @@
         pipe: pipe,
         prop: prop,
         propEq: propEq,
-        props: props
+        props: props,
+        reduce: reduce
     };
 
   /* TEST_ENTRY_POINT */
